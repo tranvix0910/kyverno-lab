@@ -1,0 +1,40 @@
+apiVersion: policies.kyverno.io/v1
+kind: NamespacedImageValidatingPolicy
+metadata:
+  name: dev-team-image-policy
+  namespace: development
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 30
+
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  matchImageReferences:
+    - glob: "registry.awsfcaj.com/wineapp/dev-*"
+  credentials:
+    secrets:
+      - registry-secret
+  attestors:
+    - name: devCosign
+      cosign:
+        keyless:
+          identities:
+            - issuer: "https://token.actions.githubusercontent.com"
+              subjectRegExp: "https://github.com/tranvix0910/.*/.github/workflows/.*"
+        ctlog:
+          url: "https://rekor.sigstore.dev"
+  validationConfigurations:
+    mutateDigest: true
+    required: true
+    verifyDigest: true
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyImageSignatures(image, [attestors.devCosign])).all(e, e > 0)
+      message: >-
+        Dev team images (registry.awsfcaj.com/wineapp/dev-*) must be signed by tranvix0910 CI/CD.

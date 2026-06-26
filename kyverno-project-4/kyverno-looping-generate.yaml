@@ -1,0 +1,44 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: looping-generate-resources
+  annotations:
+    policies.kyverno.io/title: Looping Generate NetworkPolicy
+    policies.kyverno.io/description: >-
+      This policy monitors changes to the `target-namespaces` ConfigMap.
+      It reads the comma-separated string of namespaces from `data.namespaces`,
+      splits it into an array, and uses a loop (foreach) to generate a NetworkPolicy
+      in each namespace present in the list. The generated NetworkPolicies are 
+      named based on their list index.
+spec:
+  rules:
+    - name: foreach-generate-netpol
+      match:
+        any:
+          - resources:
+              kinds:
+                - ConfigMap
+              names:
+                - target-namespaces
+              namespaces:
+                - platform-config
+      context:
+        - name: nsList
+          variable:
+            # Splits the namespace string (e.g., "ns1,ns2,ns3") into a list ['ns1', 'ns2', 'ns3']
+            jmesPath: "split(request.object.data.namespaces || '', ',')"
+            default: []
+      generate:
+        synchronize: true
+        foreach:
+          - list: "nsList"
+            apiVersion: networking.k8s.io/v1
+            kind: NetworkPolicy
+            name: "np-{{elementIndex}}" # Uses elementIndex for numbering
+            namespace: "{{element}}"     # Uses element as the target namespace name
+            data:
+              spec:
+                podSelector: {}
+                policyTypes:
+                  - Ingress
+                  - Egress

@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-app
+  namespace: default
+  # Missing 'cost-center' label -> Blocked by require-cost-center policy
+spec:
+  containers:
+  - name: app
+    image: nginx:latest # Blocked by verify-image-source policy (wrong registry and uses 'latest' tag)

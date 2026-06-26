@@ -1,0 +1,137 @@
+---
+# 1. VERIFY IMAGE POLICY (Check Registry, Block latest tag and Require Secret)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: verify-image-source
+spec:
+  validationFailureAction: Enforce
+  rules:
+  - name: check-registry
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+    validate:
+      message: "Images must be pulled from the secure Private Registry: registry.awsfcaj.com/*"
+      pattern:
+        spec:
+          containers:
+          - image: "registry.awsfcaj.com/*"
+  - name: require-image-pull-secret
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+    validate:
+      message: "You must declare 'imagePullSecrets' to have permission to pull from the Private Registry."
+      pattern:
+        spec:
+          imagePullSecrets:
+          - name: "?*"
+  - name: block-latest-tag
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+    validate:
+      message: "The ':latest' tag is strictly prohibited in Production."
+      pattern:
+        spec:
+          containers:
+          - image: "!*:latest"
+
+---
+# 2. MUTATE POLICY (Automatically inject security annotations for Pods)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-security-annotations
+spec:
+  rules:
+  - name: add-security-annotation
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+    mutate:
+      patchStrategicMerge:
+        metadata:
+          annotations:
+            +(security.company.com/managed): "true"
+            +(security.company.com/scanned-by): "kyverno"
+
+---
+# 3. GENERATE POLICY (Automatically create a default-deny NetworkPolicy for new Namespaces)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-default-netpol
+spec:
+  rules:
+  - name: generate-deny-all
+    match:
+      any:
+      - resources:
+          kinds:
+          - Namespace
+    generate:
+      synchronize: true
+      apiVersion: networking.k8s.io/v1
+      kind: NetworkPolicy
+      name: default-deny-all
+      namespace: "{{request.object.metadata.name}}"
+      data:
+        spec:
+          podSelector: {}
+          policyTypes:
+          - Ingress
+          - Egress
+
+---
+# 4. VALIDATE POLICY (Require cost-center label)
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-cost-center
+spec:
+  validationFailureAction: Enforce
+  rules:
+  - name: check-cost-center
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+    validate:
+      message: "You must provide the 'cost-center' label for Cloud cost allocation."
+      pattern:
+        metadata:
+          labels:
+            cost-center: "?*"
+
+---
+# 5. CLEANUP POLICY (Automatically clean up completed Pods after 1 hour)
+apiVersion: kyverno.io/v2
+kind: ClusterCleanupPolicy
+metadata:
+  name: cleanup-completed-pods
+spec:
+  schedule: "0 * * * *"
+  match:
+    any:
+    - resources:
+        kinds:
+        - Pod
+  conditions:
+    all:
+    - key: "{{ request.object.status.phase }}"
+      operator: Equals
+      value: Succeeded
+    - key: "{{ time_diff('{{request.object.metadata.creationTimestamp}}', '{{time_now()}}') }}"
+      operator: GreaterThanOrEquals
+      value: 1h

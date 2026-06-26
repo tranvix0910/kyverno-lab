@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: bad-pod
+  namespace: test-namespace
+  # Thiếu label 'app' -> Sẽ bị require-labels chặn
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest # Sẽ bị restrict-image-registries chặn

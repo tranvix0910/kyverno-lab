@@ -1,0 +1,18 @@
+apiVersion: kyverno.io/v2
+kind: ClusterCleanupPolicy
+metadata:
+  name: cleanup-ephemeral-pods
+spec:
+  # Chạy mỗi phút (* * * * *) để dễ test
+  schedule: "* * * * *"
+  match:
+    any:
+      - resources:
+          kinds:
+            - Pod
+          selector:
+            matchLabels:
+              ephemeral: "true"
+          namespaceSelector:
+            matchLabels:
+              environment: test

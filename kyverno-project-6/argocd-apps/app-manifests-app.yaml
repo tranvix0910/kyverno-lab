@@ -1,0 +1,20 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: k8s-app-manifests
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/tranvix0910/kyverno-project-6.git'
+    targetRevision: master
+    path: app-manifests # Trỏ vào thư mục chứa cấu hình ứng dụng (test-app, bad-pod...)
+  destination:
+    server: 'https://kubernetes.default.svc'
+    namespace: test-namespace # Sẽ deploy các pod vào namespace này
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+    - CreateNamespace=true

@@ -1,0 +1,22 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-pod-security-context
+spec:
+  rules:
+    - name: auto-add-security-context
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      mutate:
+        patchStrategicMerge:
+          spec:
+            securityContext:
+              # The '+' sign means it is only added if it does not exist
+              +(runAsNonRoot): true
+            containers:
+              - (name): "?*"
+                securityContext:
+                  +(allowPrivilegeEscalation): false

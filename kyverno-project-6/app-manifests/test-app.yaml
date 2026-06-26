@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-app-1
+  namespace: test-namespace
+  labels:
+    app: test-app
+spec:
+  containers:
+  - name: nginx
+    image: nginx:latest # Cố tình dùng DockerHub, cần PolicyException để đi qua

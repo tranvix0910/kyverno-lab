@@ -1,0 +1,56 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: validate-pod-security
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: forbid-privileged-and-host
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Using privileged: true, hostNetwork: true, or hostPID: true is forbidden."
+        pattern:
+          spec:
+            =(hostNetwork): false
+            =(hostPID): false
+            containers:
+              - =(securityContext):
+                  =(privileged): false
+
+    - name: forbid-sensitive-hostpaths
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Mounting sensitive host paths (e.g., /, /var/run/docker.sock) is forbidden."
+        deny:
+          conditions:
+            any:
+              - key: "{{ request.object.spec.volumes[].hostPath.path || '[]' }}"
+                operator: AnyIn
+                value:
+                  - "/"
+                  - "/var/run/docker.sock"
+
+    - name: require-nonroot-and-readonly
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Configuring runAsNonRoot: true and readOnlyRootFilesystem: true is required."
+        pattern:
+          spec:
+            securityContext:
+              runAsNonRoot: true
+            containers:
+              - securityContext:
+                  readOnlyRootFilesystem: true

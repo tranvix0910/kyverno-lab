@@ -1,0 +1,19 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: restrict-image-registries
+spec:
+  validationFailureAction: Enforce
+  rules:
+  - name: validate-registries
+    match:
+      any:
+      - resources:
+          kinds:
+          - Pod
+    validate:
+      message: "Unknown image registry. Only registry.awsfcaj.com is allowed."
+      pattern:
+        spec:
+          containers:
+          - image: "registry.awsfcaj.com/*"

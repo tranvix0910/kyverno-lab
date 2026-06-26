@@ -1,0 +1,28 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: require-imagepullsecrets-corp
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: require-ips-for-non-public-registry
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      preconditions:
+        all:
+          - key: "{{ images.containers.*.registry }}"
+            operator: AnyNotIn
+            value:
+              - ghcr.io
+              - quay.io
+              - docker.io
+      validate:
+        message: "An imagePullSecret is required when pulling from this registry."
+        pattern:
+          spec:
+            imagePullSecrets:
+              - name: "?*"

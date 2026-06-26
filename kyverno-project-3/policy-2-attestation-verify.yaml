@@ -1,0 +1,54 @@
+apiVersion: policies.kyverno.io/v1
+kind: ImageValidatingPolicy
+metadata:
+  name: verify-image-attestations
+spec:
+  validationActions: [Deny]
+  failurePolicy: Fail
+  webhookConfiguration:
+    timeoutSeconds: 30
+
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [""]
+        apiVersions: ["v1"]
+        operations: ["CREATE", "UPDATE"]
+        resources: ["pods"]
+  matchImageReferences:
+    - glob: "registry.awsfcaj.com/wineapp/*"
+  credentials:
+    secrets:
+      - registry-secret
+  attestors:
+    - name: cosign
+      cosign:
+        keyless:
+          identities:
+            - issuer: "https://token.actions.githubusercontent.com"
+              subjectRegExp: "https://github.com/tranvix0910/.*/.github/workflows/.*"
+        ctlog:
+          url: "https://rekor.sigstore.dev"
+  validationConfigurations:
+    mutateDigest: true
+    required: true
+    verifyDigest: true
+  attestations:
+    - name: sbom
+      referrer:
+        type: sbom/cyclone-dx
+    - name: cosignAttestation
+      intoto:
+        type: cosign.sigstore.dev/attestation/vuln/v1
+  validations:
+    - expression: >-
+        images.containers.map(image, verifyAttestationSignatures(image, attestations.sbom, [attestors.cosign])).all(e, e > 0)
+      message: >-
+        All images must have a valid SBOM attestation signed by the CI/CD pipeline.
+    - expression: >-
+        images.containers.map(image, verifyAttestationSignatures(image, attestations.cosignAttestation, [attestors.cosign])).all(e, e > 0)
+      message: >-
+        All images must have a valid vulnerability scan attestation signed by the CI/CD pipeline.
+    - expression: >-
+        images.containers.map(image, extractPayload(image, attestations.sbom).bomFormat == "CycloneDX").all(e, e)
+      message: >-
+        All images must include a valid CycloneDX SBOM (Software Bill of Materials).

@@ -1,0 +1,60 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-default-configs
+  annotations:
+    policies.kyverno.io/title: Generate Default Configs
+    policies.kyverno.io/description: >-
+      This policy automatically initializes basic resources using the Data Source mechanism
+      when a new Namespace is created. It generates a ConfigMap for logging and 
+      a default-deny NetworkPolicy to ensure baseline security.
+spec:
+  rules:
+    - name: generate-logging-config
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kyverno
+      generate:
+        synchronize: true
+        apiVersion: v1
+        kind: ConfigMap
+        name: logging-config
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          data:
+            log_level: "info"
+            log_format: "json"
+            retention_days: "7"
+
+    - name: generate-default-deny-netpol
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      exclude:
+        any:
+          - resources:
+              namespaces:
+                - kube-system
+                - kyverno
+      generate:
+        synchronize: true
+        apiVersion: networking.k8s.io/v1
+        kind: NetworkPolicy
+        name: default-deny
+        namespace: "{{request.object.metadata.name}}"
+        data:
+          spec:
+            podSelector: {}
+            policyTypes:
+              - Ingress
+              - Egress

@@ -1,0 +1,38 @@
+name: Infrastructure CI (Terraform Security)
+on:
+  pull_request:
+    branches: [ "master" ]
+    paths:
+      - 'terraform/**'
+      - 'policies/tf-policies/**'
+
+jobs:
+  validate-terraform:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v3
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+
+    - name: Terraform Init
+      run: terraform init
+      working-directory: ./terraform
+
+    - name: Generate Terraform Plan
+      run: terraform plan -out=tfplan
+      working-directory: ./terraform
+
+    - name: Convert Plan to JSON
+      run: terraform show -json tfplan > plan.json
+      working-directory: ./terraform
+
+    - name: Install Kyverno JSON CLI
+      run: |
+        curl -sLO https://github.com/kyverno/kyverno-json/releases/download/v0.3.0/kyverno-json_v0.3.0_linux_x86_64.tar.gz
+        tar -xzf kyverno-json_v0.3.0_linux_x86_64.tar.gz
+        sudo mv kyverno-json /usr/local/bin/
+
+    - name: Scan Terraform Plan with Kyverno CEL
+      run: kyverno-json scan --payload ./terraform/plan.json --policy ./policies/tf-policies/

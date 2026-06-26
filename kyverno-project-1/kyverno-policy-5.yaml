@@ -1,0 +1,42 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: mutate-namespace-env-team
+spec:
+  background: false
+  rules:
+    - name: add-dev-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              name: "*-dev*"
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              +(environment): "dev"
+    - name: add-prod-label
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              name: "*-prod*"
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            labels:
+              +(environment): "prod"
+    - name: add-team-annotation
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              +(team): "unknown-team"

@@ -1,0 +1,21 @@
+apiVersion: kyverno.io/v2
+kind: CleanupPolicy
+metadata:
+  name: cleanup-completed-jobs
+  namespace: batch-prod
+spec:
+  # Chạy mỗi phút (* * * * *) thay vì 2h sáng (0 2 * * *) để dễ dàng test
+  schedule: "* * * * *"
+  # Đảm bảo xóa cả Pod của Job
+  deletionPropagationPolicy: Background
+  match:
+    any:
+      - resources:
+          kinds:
+            - batch/v1/Job
+  conditions:
+    all:
+      - key: "True"
+        operator: AnyIn
+        # Kiểm tra xem mảng status.conditions có condition nào type là Complete và status là True hay không
+        value: "{{ target.status.conditions[?type == 'Complete'].status || `[]` }}"

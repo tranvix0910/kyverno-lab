@@ -1,0 +1,25 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: sync-docker-private-registry
+spec:
+  background: false
+  rules:
+    - name: sync-docker-private-registry-to-namespaces
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  imagepullsecret-sync: "true"
+      generate:
+        apiVersion: v1
+        kind: Secret
+        name: docker-private-registry
+        namespace: "{{ request.object.metadata.name }}"
+        synchronize: true
+        clone:
+          namespace: platform-secrets
+          name: docker-private-registry

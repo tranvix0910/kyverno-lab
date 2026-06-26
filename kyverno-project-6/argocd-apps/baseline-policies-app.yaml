@@ -1,0 +1,18 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: kyverno-baseline-policies
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: 'https://github.com/tranvix0910/kyverno-project-6.git'
+    targetRevision: master
+    path: baseline-policies # Trỏ vào thư mục chứa Kyverno Policies
+  destination:
+    server: 'https://kubernetes.default.svc' # Triển khai trên chính cụm nội bộ
+    namespace: default # ClusterPolicy là tài nguyên cấp cụm nên namespace ở đây không quá quan trọng
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true # Tự động phục hồi nếu ai đó sửa tay trên Cluster

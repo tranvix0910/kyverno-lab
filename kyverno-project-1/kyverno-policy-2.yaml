@@ -1,0 +1,25 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: generate-app-sa-regcred
+spec:
+  background: false
+  rules:
+    - name: generate-app-sa
+      match:
+        any:
+          - resources:
+              kinds:
+                - Namespace
+              selector:
+                matchLabels:
+                  imagepullsecret-sync: "true"
+      generate:
+        apiVersion: v1
+        kind: ServiceAccount
+        name: app-regcred-sa
+        namespace: "{{ request.object.metadata.name }}"
+        synchronize: true
+        data:
+          imagePullSecrets:
+            - name: docker-private-registry

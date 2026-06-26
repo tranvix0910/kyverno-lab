@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-app
+  namespace: default
+  labels:
+    cost-center: "marketing" # Satisfies the require-cost-center policy
+spec:
+  imagePullSecrets:
+  - name: my-registry-secret
+  containers:
+  - name: app
+    image: registry.awsfcaj.com/my-secure-app:v1.0.0 # Valid image from approved registry with explicit version

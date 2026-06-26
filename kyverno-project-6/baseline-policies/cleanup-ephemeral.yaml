@@ -1,0 +1,19 @@
+apiVersion: kyverno.io/v2
+kind: ClusterCleanupPolicy
+metadata:
+  name: cleanup-ephemeral
+spec:
+  schedule: "*/5 * * * *"
+  match:
+    any:
+    - resources:
+        kinds:
+        - Pod
+        selector:
+          matchLabels:
+            env: test
+  conditions:
+    any:
+    - key: "{{ time_diff('{{request.object.metadata.creationTimestamp}}', '{{time_now()}}') }}"
+      operator: GreaterThanOrEquals
+      value: 2h

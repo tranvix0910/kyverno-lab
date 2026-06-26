@@ -1,0 +1,19 @@
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: bypass-image-check-for-test-app
+  namespace: test-namespace
+spec:
+  exceptions:
+  - policyName: restrict-image-registries
+    ruleNames:
+    - validate-registries
+  match:
+    any:
+    - resources:
+        kinds:
+        - Pod
+        names:
+        - test-app-*
+        namespaces:
+        - test-namespace

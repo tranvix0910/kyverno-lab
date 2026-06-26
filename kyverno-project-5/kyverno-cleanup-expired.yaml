@@ -1,0 +1,22 @@
+apiVersion: kyverno.io/v2
+kind: ClusterCleanupPolicy
+metadata:
+  name: cleanup-expired-configs
+spec:
+  # Chạy mỗi phút (* * * * *) để dễ test
+  schedule: "* * * * *"
+  match:
+    any:
+      - resources:
+          kinds:
+            - Secret
+            - ConfigMap
+          selector:
+            matchExpressions:
+              - key: expire-at
+                operator: Exists
+  conditions:
+    all:
+      - key: "{{ target.metadata.labels.\"expire-at\" | replace_all(@, '-', '') | to_number(@) }}"
+        operator: LessThan
+        value: "{{ time_now_utc() | split(@, 'T')[0] | replace_all(@, '-', '') | to_number(@) }}"

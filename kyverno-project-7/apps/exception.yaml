@@ -1,0 +1,18 @@
+apiVersion: kyverno.io/v2
+kind: PolicyException
+metadata:
+  name: bypass-image-check-for-test-app
+  namespace: default
+spec:
+  exceptions:
+  - policyName: verify-image-source
+    ruleNames:
+    - check-registry
+    - block-latest-tag
+  match:
+    any:
+    - resources:
+        kinds:
+        - Pod
+        names:
+        - test-app-*
