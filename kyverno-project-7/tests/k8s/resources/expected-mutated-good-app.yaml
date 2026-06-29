@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: good-app
+  namespace: default
+  labels:
+    cost-center: "marketing"
+  annotations:
+    security.company.com/managed: "true"
+    security.company.com/scanned-by: "kyverno"
+spec:
+  imagePullSecrets:
+  - name: my-registry-secret
+  containers:
+  - name: app
+    image: registry.awsfcaj.com/my-secure-app:v1.0.0

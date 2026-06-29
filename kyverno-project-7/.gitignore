@@ -1,0 +1,18 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+*.tfvars
+*.tfvars.json
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraform.lock.hcl
+tfplan
+plan.json
+
+# Kyverno & Terraform large binaries
+bin/kyverno
+bin/kyverno-json
+bin/terraform

@@ -1,99 +1,218 @@
 # Project 7 – Full-stack DevSecOps: Terraform + CI/CD + GitOps + Kyverno
 
-## 1. Core Concepts
+## 1. Introduction
 
-Project 7 is the final and most comprehensive milestone. In this project, we combine the **4 pillars** of Modern Infrastructure into a fully automated End-to-End Pipeline:
+Project 7 is the final and most comprehensive milestone in this repository. It integrates the **4 pillars** of modern Cloud-Native Infrastructure into a fully automated End-to-End DevSecOps Pipeline:
 
-1. **IaC (Infrastructure as Code) - Terraform:** Automates the creation of hardware infrastructure (VPC, Cluster) and core platforms.
-2. **GitOps - ArgoCD:** Uses Git as the Single Source of Truth. All configuration changes must be pulled automatically from Git to the Cluster.
-3. **CI/CD (Continuous Integration) - GitHub Actions:** Verifies configurations, scans for vulnerabilities, and ensures infrastructure code safety before deployment.
-4. **Policy-as-Code - Kyverno:** Acts as the comprehensive "Security Guard", operating on both fronts:
-   - **Shift-Left:** Scans Terraform JSON plans directly on Pull Requests using Kyverno JSON CLI.
-   - **Runtime:** Protects the Kubernetes Cluster via Webhooks (Validate, Mutate, Generate, Cleanup, Image Verify).
+1. **Infrastructure as Code (IaC) - Terraform:** Automates hardware provisioning (VPC, Security Groups, EC2 instances).
+2. **Continuous Integration (CI) - GitHub Actions:** Runs static analysis, security validation, and policy compliance checks before merging code.
+3. **Continuous Delivery (CD) - GitOps with ArgoCD:** Automatically synchronizes and enforces the desired state of Kubernetes manifests and policies directly from Git.
+4. **Policy-as-Code - Kyverno & Kyverno JSON:** Establishes security guardrails across both infrastructure (Shift-Left validation of Terraform plans) and container runtimes (Admission Control).
 
 ---
 
-## 2. System Architecture (Mono-repo)
+## 2. System Architecture
 
-The system is organized into a Mono-repo structure with clear directories for Separation of Duties:
+The project is structured as a Git Mono-repo to segregate duties between platform teams (managing policies and infrastructure) and development teams (managing application code).
 
-- `terraform/`: Contains Terraform source code (Creates AWS EKS).
-- `policies/tf-policies/`: Contains Kyverno rules (JSON mode) to validate Terraform plan files.
-- `policies/k8s-policies/`: Contains the most comprehensive Kyverno rules for Kubernetes (Verify Registry, Mutate, Generate, Cleanup, Validate).
-- `apps/`: Contains sample applications and `PolicyException` files.
-- `argocd/`: GitOps ArgoCD configuration using the App-of-Apps pattern.
-- `.github/workflows/`: Contains CI scripts.
+### 2.1 Directory Structure
 
-### Architecture Flow:
-
-1. **Infrastructure CI:** Developer creates a PR for Terraform code -> GitHub Actions runs `terraform plan` -> converts to JSON -> Kyverno JSON CLI validates it against `tf-policies`.
-
-2. **GitOps Deployment:** Once merged, ArgoCD automatically syncs `policies` (Wave 1) first, then syncs `apps` (Wave 2) to prevent Race Conditions.
-
-3. **Admission Control:** Kyverno Webhook intercepts App deployments, verifies the Image Registry, injects secrets, generates NetworkPolicies, and ensures labels are present.
+- [.github/workflows/infra-ci.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/.github/workflows/infra-ci.yaml): Automated CI pipeline running Terraform checks and `kyverno-json` scans on PRs.
+- [terraform/](file:///home/kubernetes/kyverno/kyverno-project-7/terraform/): Source Terraform files creating a VPC, EC2 instance, and Security Group.
+- [policies/tf-policies/check-ssh-public.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/policies/tf-policies/check-ssh-public.yaml): Kyverno JSON policy validating Terraform plans for public SSH vulnerabilities.
+- [policies/k8s-policies/advanced-policies.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/policies/k8s-policies/advanced-policies.yaml): Cluster-level Kyverno policies covering Image verification, resource mutation, network policy generation, label validation, and resource cleanup.
+- [apps/](file:///home/kubernetes/kyverno/kyverno-project-7/apps/): Kubernetes manifests representing different application workloads (good, bad, exception) deployed by developers.
+- [argocd/app-of-apps.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/argocd/app-of-apps.yaml): ArgoCD bootstrap application configuration coordinating deployment order.
+- [tests/k8s/](file:///home/kubernetes/kyverno/kyverno-project-7/tests/k8s/): Declarative unit test suites verifying K8s policies using Kyverno CLI.
 
 ---
 
-## 3. Advanced Kyverno Features Utilized
+## 3. Architecture & Application Flow
 
-We use all of Kyverno's most powerful features:
+The diagram below details the end-to-end security checking flow, spanning from a developer modifying Terraform code to admission control during GitOps runtime deployment.
 
-1. **JSON Payload Validation:** Scanning Terraform plans directly without needing third-party tools like Checkov.
+```mermaid
+graph TD
+    classDef dev fill:#ffe0b2,stroke:#ef6c00,stroke-width:2px,color:#000;
+    classDef ci fill:#b3e5fc,stroke:#0277bd,stroke-width:2px,color:#000;
+    classDef cd fill:#c8e6c9,stroke:#2e7d32,stroke-width:2px,color:#000;
+    classDef k8s fill:#d1c4e9,stroke:#5e35b1,stroke-width:2px,color:#000;
+    classDef policy fill:#fff59d,stroke:#fbc02d,stroke-width:2px,color:#000;
 
-2. **Validating Policy:** Restricts Image Registries and strictly prohibits the `:latest` tag. Enforces the `cost-center` label.
+    %% Developer / Git Phase
+    subgraph GitPhase ["1. Code Commit & CI/CD Gate (Shift-Left)"]
+        Dev["Developer commits Code"]:::dev
+        PR["Create Pull Request"]:::dev
+        
+        TF_Init["terraform init"]:::ci
+        TF_Plan["terraform plan -out=tfplan"]:::ci
+        TF_Show["terraform show -json tfplan > plan.json"]:::ci
+        KyvernoJSON[("Kyverno JSON CLI<br/>scan plan.json")]:::policy
+        
+        Dev --> PR
+        PR -->|Trigger CI| TF_Init
+        TF_Init --> TF_Plan
+        TF_Plan --> TF_Show
+        TF_Show --> KyvernoJSON
+    end
 
-3. **Mutating Policy:** Automatically injects security annotations (`security.company.com/managed`) into Pods.
+    %% CI Decision Gate
+    KyvernoJSON -->|SSH Exposed FAILED| BlockPR["Block Merge / Fail PR"]:::ci
+    KyvernoJSON -->|Compliant PASSED| MergeMain["Merge to main branch"]:::dev
 
-4. **Generating Policy:** Automatically generates a default-deny `NetworkPolicy` for every newly created Namespace.
+    %% GitOps Phase
+    subgraph GitOpsPhase ["2. Deployment & Synchronization (GitOps)"]
+        MergeMain -->|Triggers Sync| ArgoCD["ArgoCD Controller"]:::cd
+        
+        subgraph SyncWaves ["Sync Waves Execution"]
+            Wave1["Wave 1: Apply Policies<br/>(k8s-policies/)"]:::policy
+            Wave2["Wave 2: Apply Workloads<br/>(apps/)"]:::k8s
+            Wave1 -->|Depends on| Wave2
+        end
+        
+        ArgoCD --> Wave1
+    end
 
-5. **Cleanup Policy:** Automatically cleans up completed Pods after 1 hour to free up resources.
-
-6. **PolicyException CRD:** Safely bypasses security rules for specific applications (e.g., allowing `test-app` to bypass the registry check) without weakening the entire cluster's security posture.
+    %% K8s Cluster Admission Control
+    subgraph ClusterPhase ["3. K8s Admission Control & Runtime"]
+        APIServer["Kubernetes API Server"]:::cd
+        KyvernoWebhook[("Kyverno Admission Webhook<br/>(verify-image-source / cost-center)")]:::policy
+        
+        %% Good App Flow
+        GoodApp["Deploy good-app"]:::k8s
+        MutateGood["Mutate: Add Security Annotations"]:::policy
+        AllowGood["Created in Cluster"]:::cd
+        
+        %% Bad App Flow
+        BadApp["Deploy bad-app"]:::k8s
+        BlockBad["Blocked: Missing cost-center & Insecure Registry"]:::policy
+        
+        %% Exception Flow
+        ExceptionApp["Deploy test-app-1<br/>(PolicyException matches)"]:::k8s
+        SkipImageCheck["Bypass: Allow registry bypass"]:::policy
+        AllowException["Created in Cluster"]:::cd
+        
+        Wave2 --> APIServer
+        APIServer <--> KyvernoWebhook
+        
+        KyvernoWebhook --> GoodApp --> MutateGood --> AllowGood
+        KyvernoWebhook --> BadApp --> BlockBad
+        KyvernoWebhook --> ExceptionApp --> SkipImageCheck --> AllowException
+    end
+```
 
 ---
 
-## 4. Deep Dive Test Cases
+## 4. Step-by-Step Deployment & GitOps Integration
 
-Follow these step-by-step instructions to experience the combined power of GitOps and Kyverno.
+To deploy and maintain this configuration using GitOps, we enforce separation of dependencies using ArgoCD Sync Waves.
 
-### Test Case 1: Shift-Left CI (Block errors on PR)
+### Step 1: Bootstrapping ArgoCD (App-of-Apps)
+Apply the bootstrap application config. It establishes the synchronization of both policies and workload applications:
+```bash
+kubectl apply -f argocd/app-of-apps.yaml
+```
 
-**Goal:** Prove the "Shift-Left" philosophy - catching misconfigurations right at the coding phase before they reach the infrastructure.
+ArgoCD coordinates the sync process using the `argocd.argoproj.io/sync-wave` annotation in [app-of-apps.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/argocd/app-of-apps.yaml):
+1. **Wave 1 (`project-7-policies`):** Provisions Kyverno cluster-wide rules ([advanced-policies.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/policies/k8s-policies/advanced-policies.yaml)) first.
+2. **Wave 2 (`project-7-apps`):** Deploys application manifests ([good-app.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/apps/good-app.yaml), [bad-app.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/apps/bad-app.yaml), and [exception.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/apps/exception.yaml)).
 
-**Steps:**
-1. **Create a New Branch:** Simulate a Developer workflow.
-   ```bash
-   git checkout -b feature-test-ci
-   ```
-2. **Intentional Misconfiguration:** Open `terraform/main.tf` and ensure `endpoint_public_access = true` is set, exposing the EKS cluster to the public Internet.
-3. **Push & PR:** Commit and push the code, then create a Pull Request to `master`.
-4. **Observe CI Pipeline:**
-   - GitHub Actions automatically triggers `infra-ci.yaml`.
-   - It runs `kyverno-json scan` against the Terraform plan using `policies/tf-policies/check-eks-public.yaml`.
-   - **Expected Result:** The PR Check fails (Exit code > 0) with a clear message: *"Public access to EKS cluster endpoint must be set to false"*. The vulnerable infrastructure is blocked entirely!
+This dependency logic guarantees that application manifests are never processed before their policies are loaded, preventing deployment race conditions.
 
-### Test Case 2: GitOps Sync & Admission Block (Kyverno as the Final Gatekeeper)
+---
 
-**Goal:** Simulate a scenario where a flawed configuration bypasses CI (e.g., Force Merge) and see how Kyverno blocks it at the Cluster level.
+## 5. In-Depth Test Cases & Expected Outcomes
 
-**Steps:**
-1. **Force Merge Bad Code:** Force merge `apps/bad-app.yaml` (which lacks labels and uses the `latest` tag) into `master`.
-2. **ArgoCD Sync:** ArgoCD detects the new file and attempts to create the Pod in Kubernetes.
-3. **Kyverno Webhook Intervenes:**
-   - Before the Pod is written to `etcd`, Kyverno Admission Controller intercepts the request.
-   - It evaluates the Pod against `verify-image-source` and `require-cost-center` policies.
-4. **Observe ArgoCD Status:**
-   - ArgoCD shows the app as **OutOfSync** and **Missing**.
-   - The Sync Status reveals Kyverno's denial message: *"You must provide the 'cost-center' label"* and *"The ':latest' tag is strictly prohibited"*.
+### Test Case 1: Shift-Left CI (Static IaC Plan Scanning)
+This test validates that infrastructure changes are validated against policies *before* any resource is provisioned on the cloud provider.
 
-### Test Case 3: Controlled Exceptions with PolicyException
+#### Local Execution Command
+Run the scan command locally using the Kyverno JSON CLI to verify the Terraform JSON plan configuration:
+```bash
+./bin/kyverno-json scan --payload terraform/plan.json --policy policies/tf-policies/
+```
 
-**Goal:** Real-world security needs flexibility. We need to allow a specific app to bypass strict rules legally and traceably.
+#### Expected Scan Result & Output
+The scan detects that the security group opens SSH port 22 to the public internet (`0.0.0.0/0`), failing validation as expected:
+```
+Loading policies ...
+Loading payload ...
+Pre processing ...
+Running ( evaluating 1 resource against 1 policy ) ...
+- check-ssh-public / check-ssh-public /  FAILED
+ -> all[0].check.(length(planned_values.root_module.resources[?type == 'aws_security_group'].values.ingress[][] | [?from_port <= `22` && to_port >= `22` && contains(cidr_blocks, '0.0.0.0/0')] || `[]`)): Invalid value: 1: Expected value: 0
+Done
+```
+* **Why it fails:** The rule in [check-ssh-public.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/policies/tf-policies/check-ssh-public.yaml) checks for ingress rules exposing port 22. It finds exactly `1` match, which violates the assertion of having `0` matches.
+* **CI Action:** If triggered on GitHub Actions, the workflow runner exits with code `1`, blocking the Pull Request from merging.
 
-**Steps:**
-1. **The Barrier:** `verify-image-source` policy strictly requires images from `registry.tranvix.click/*` and blocks `:latest`.
-2. **The Exception Request:** The file `apps/exception.yaml` explicitly grants an exception to Pods named `test-app-*` to bypass the registry and tag checks.
-3. **Observe the Difference:**
-   - When ArgoCD deploys a valid app matching the exception, Kyverno acknowledges the `PolicyException` and allows it.
-   - If a hacker tries to name their pod `hacker-app` and use `:latest`, it will be ruthlessly blocked because the name does not match the approved exception pattern!
-   - **Conclusion:** Robust security without extreme rigidity. All exceptions are clearly documented as Code.
+---
+
+### Test Case 2: K8s Policy Compliance Unit Tests
+This test simulates cluster admission control testing locally without needing a live Kubernetes cluster.
+
+#### Local Execution Command
+Run the Kyverno CLI unit testing tool against the declarative test manifests:
+```bash
+./bin/kyverno test tests/k8s/
+```
+
+#### Expected Test Result & Output
+Kyverno processes all resources defined in [tests/k8s/kyverno-test.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/tests/k8s/kyverno-test.yaml) and reports:
+```
+Loading test  ( tests/k8s/kyverno-test.yaml ) ...
+  Loading values/variables ...
+  Loading policies ...
+  Loading resources ...
+  Loading exceptions ...
+  Applying 4 policies to 4 resources with 1 exception ...
+  Checking results ...
+
+│──────────│─────────────────────────────│───────────────────────────│───────────────────────────│────────│────────│
+│ ID (14)  │ POLICY                      │ RULE                      │ RESOURCE                  │ RESULT │ REASON │
+│──────────│─────────────────────────────│───────────────────────────│───────────────────────────│────────│────────│
+│ 1        │ verify-image-source         │ check-registry            │ v1/Pod/default/good-app   │ Pass   │ Ok     │
+│ 2        │ verify-image-source         │ require-image-pull-secret │ v1/Pod/default/good-app   │ Pass   │ Ok     │
+│ 3        │ verify-image-source         │ block-latest-tag          │ v1/Pod/default/good-app   │ Pass   │ Ok     │
+│ 4        │ require-cost-center         │ check-cost-center         │ v1/Pod/default/good-app   │ Pass   │ Ok     │
+│ 5        │ mutate-security-annotations │ add-security-annotation   │ v1/Pod/default/good-app   │ Pass   │ Ok     │
+│ 6        │ verify-image-source         │ check-registry            │ v1/Pod/default/bad-app    │ Pass   │ Ok     │
+│ 7        │ verify-image-source         │ require-image-pull-secret │ v1/Pod/default/bad-app    │ Pass   │ Ok     │
+│ 8        │ verify-image-source         │ block-latest-tag          │ v1/Pod/default/bad-app    │ Pass   │ Ok     │
+│ 9        │ require-cost-center         │ check-cost-center         │ v1/Pod/default/bad-app    │ Pass   │ Ok     │
+│ 10       │ verify-image-source         │ check-registry            │ v1/Pod/default/test-app-1 │ Pass   │ Ok     │
+│ 11       │ verify-image-source         │ block-latest-tag          │ v1/Pod/default/test-app-1 │ Pass   │ Ok     │
+│ 12       │ verify-image-source         │ require-image-pull-secret │ v1/Pod/default/test-app-1 │ Pass   │ Ok     │
+│ 13       │ require-cost-center         │ check-cost-center         │ v1/Pod/default/test-app-1 │ Pass   │ Ok     │
+│ 14       │ generate-default-netpol     │ generate-deny-all         │ /default-deny-all         │ Pass   │ Ok     │
+│──────────│─────────────────────────────│───────────────────────────│───────────────────────────│────────│────────│
+
+Test Summary: 14 tests passed and 0 tests failed
+```
+
+#### Detailed Outcome Mapping
+* **`good-app` validation:** Evaluates as `Pass`. It conforms to registry standards (`registry.awsfcaj.com`), declares an `imagePullSecret`, does not use `:latest`, and provides a `cost-center` label.
+* **`good-app` mutation:** Evaluates as `Pass`. It successfully appends `security.company.com/managed: "true"` and `security.company.com/scanned-by: "kyverno"` annotations.
+* **`bad-app` validation:** Evaluates as `Pass`. Because it uses `nginx:latest` and misses `cost-center`, the test engine expects the policy checks to **fail/block** the pod. Since the policy blocks it as designed, the assertion succeeds.
+* **`test-app-1` validation:** Evaluates as `Pass`. The policy exception matches, allowing the registry and `:latest` tags to be skipped (`result: skip`). It is still validated for the `cost-center` label which it provides.
+* **Downstream resource generation:** Evaluates as `Pass`. Creating a new Namespace successfully generates a `default-deny-all` `NetworkPolicy`.
+
+---
+
+### Test Case 3: ArgoCD Sync & Admission Block (Cluster Protection)
+This test verifies the real cluster behavior when a configuration passes through GitOps synchronization.
+
+#### Deployment Action
+If you force-merge [bad-app.yaml](file:///home/kubernetes/kyverno/kyverno-project-7/apps/bad-app.yaml) (which contains an unapproved image registry and misses labels) into the `master` branch:
+
+1. ArgoCD automatically pulls the changes and attempts to submit the Pod manifest to the Kubernetes cluster.
+2. The Kyverno Admission Controller Webhook intercepts this creation request.
+3. The webhook blocks the pod creation, returning the following validation messages:
+   * `"Images must be pulled from the secure Private Registry: registry.awsfcaj.com/*"`
+   * `"The ':latest' tag is strictly prohibited in Production."`
+   * `"You must declare 'imagePullSecrets' to have permission to pull from the Private Registry."`
+   * `"You must provide the 'cost-center' label for Cloud cost allocation."`
+
+#### Expected ArgoCD UI Status
+* The Application `project-7-apps` displays a **yellow** status representing **`OutOfSync`**.
+* The Health status remains **`Missing`** because the Pod resource was rejected by Kyverno at admission time and never persisted to the cluster's `etcd`.

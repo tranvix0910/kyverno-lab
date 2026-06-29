@@ -1,0 +1,113 @@
+apiVersion: cli.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: project7-k8s-tests
+
+policies:
+  - ../../policies/k8s-policies/advanced-policies.yaml
+
+resources:
+  - resources/good-app.yaml
+  - resources/bad-app.yaml
+  - resources/exception-app.yaml
+  - resources/trigger-namespace.yaml
+
+exceptions:
+  - ../../apps/exception.yaml
+
+results:
+  # good-app validation
+  - policy: verify-image-source
+    rule: check-registry
+    resources:
+      - good-app
+    kind: Pod
+    result: pass
+  - policy: verify-image-source
+    rule: require-image-pull-secret
+    resources:
+      - good-app
+    kind: Pod
+    result: pass
+  - policy: verify-image-source
+    rule: block-latest-tag
+    resources:
+      - good-app
+    kind: Pod
+    result: pass
+  - policy: require-cost-center
+    rule: check-cost-center
+    resources:
+      - good-app
+    kind: Pod
+    result: pass
+
+  # good-app mutation
+  - policy: mutate-security-annotations
+    rule: add-security-annotation
+    resources:
+      - good-app
+    kind: Pod
+    patchedResources: resources/expected-mutated-good-app.yaml
+    result: pass
+
+  # bad-app validation (fails)
+  - policy: verify-image-source
+    rule: check-registry
+    resources:
+      - bad-app
+    kind: Pod
+    result: fail
+  - policy: verify-image-source
+    rule: require-image-pull-secret
+    resources:
+      - bad-app
+    kind: Pod
+    result: fail
+  - policy: verify-image-source
+    rule: block-latest-tag
+    resources:
+      - bad-app
+    kind: Pod
+    result: fail
+  - policy: require-cost-center
+    rule: check-cost-center
+    resources:
+      - bad-app
+    kind: Pod
+    result: fail
+
+  # exception-app validation (skips due to exception, passes require-image-pull-secret/check-cost-center)
+  - policy: verify-image-source
+    rule: check-registry
+    resources:
+      - test-app-1
+    kind: Pod
+    result: skip
+  - policy: verify-image-source
+    rule: block-latest-tag
+    resources:
+      - test-app-1
+    kind: Pod
+    result: skip
+  - policy: verify-image-source
+    rule: require-image-pull-secret
+    resources:
+      - test-app-1
+    kind: Pod
+    result: pass
+  - policy: require-cost-center
+    rule: check-cost-center
+    resources:
+      - test-app-1
+    kind: Pod
+    result: pass
+
+  # generate-deny-all test
+  - policy: generate-default-netpol
+    rule: generate-deny-all
+    resources:
+      - test-netpol-ns
+    kind: Namespace
+    generatedResource: resources/expected-netpol.yaml
+    result: pass
